@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Your Folders</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container py-5">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="text-primary">📁 Your Folders</h2>
+  <div class="d-flex align-items-center">
+    <span class="me-3 text-muted">👤 {{ username }}</span>
+    <a href="/logout" class="btn btn-outline-danger">Logout</a>
+  </div>
+</div>
+
+  <form method="post" action="/folder/create" class="row g-3 mb-4">
+    <div class="col-md-9">
+      <input name="folder_name" class="form-control" placeholder="Enter new folder name" required>
+    </div>
+    <div class="col-md-3">
+      <button type="submit" class="btn btn-success w-100">Create Folder</button>
+    </div>
+  </form>
+
+  {% if folders %}
+  <div class="list-group shadow-sm">
+    {% for folder in folders %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div>
+            <i class="bi bi-folder-fill text-warning me-2"></i>
+            <strong>{{ folder.name }}</strong>
+            <small class="text-muted ms-2">({{ folder.total_size }} MB, {{ folder.file_count }} files)</small>
+          </div>
+          <div>
+            <a href="{{ url_for('folder_view', folder_id=folder.id) }}" class="btn btn-sm btn-outline-primary me-2">View</a>
+            <a href="{{ url_for('download_folder_zip', folder_id=folder.id) }}" class="btn btn-sm btn-outline-success">Download ZIP</a>
+          </div>
+        </div>
+        <div class="progress" style="height: 8px;">
+          <div class="progress-bar bg-info" role="progressbar" style="width: {{ folder.usage_percent }}%;" aria-valuenow="{{ folder.usage_percent }}" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <small class="text-muted">Used {{ folder.total_size }} MB of 100 MB quota</small>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}
+    <div class="alert alert-info">No folders found. Create one above.</div>
+  {% endif %}
+</div>
+
+</body>
+</html>
