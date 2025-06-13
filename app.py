@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, send_from_directory, flash, send_file
+from flask import Flask, render_template,jsonify, request, redirect, url_for, session, send_from_directory, flash, send_file
 from werkzeug.utils import secure_filename
 import os
 import uuid
@@ -130,7 +130,8 @@ def folder_view(folder_id):
         if 'file' in request.files:
             file = request.files['file']
             if file and allowed_file(file.filename):
-                filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
+                ext = os.path.splitext(file.filename)[1]
+                filename = f"{uuid.uuid4()}{ext}" 
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(file_path)
                 size = os.path.getsize(file_path)
@@ -237,6 +238,22 @@ def rename_folder(folder_id):
         return {'success': True}
 
     return {'success': False}, 400
+
+@app.route('/file/<int:file_id>/rename', methods=['POST'])
+def rename_file(file_id):
+    data = request.get_json()
+    new_base = data.get('new_name', '').strip()
+    file = File.query.get(file_id)
+
+    if file and new_base:
+        # Split the original extension
+        ext = os.path.splitext(file.filename)[1]
+        # Rename only the base name, preserve extension
+        file.filename = f"{new_base}{ext}"
+        db.session.commit()
+        return jsonify(success=True)
+    return jsonify(success=False), 400
+
 
 
 
