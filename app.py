@@ -8,12 +8,15 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import zipfile
 import io
 from datetime import timedelta
+from flask_migrate import Migrate
+
 app = Flask(__name__)
 app.config.from_object(Config)
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB max file size
 app.permanent_session_lifetime = timedelta(days=7)
 
-
+db.init_app(app)
+migrate = Migrate(app, db) 
 
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'pdf', 'doc', 'docx'}
@@ -21,7 +24,6 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'pdf', 'doc', 'docx'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-db.init_app(app)
 
 @app.route('/')
 def home():
@@ -64,7 +66,13 @@ def dashboard():
         return redirect(url_for('login'))
 
     user = User.query.get(session['user_id'])
-    folders = Folder.query.filter_by(user_id=user.id).all()
+    if not user:
+        session.pop('user_id', None)
+        flash("Session expired. Please log in again.")
+        return redirect(url_for('login'))
+
+    # Only get top-level folders (no parent)
+    folders = Folder.query.filter_by(user_id=user.id, parent_id=None).all()
 
     folders_with_size = []
     for folder in folders:
@@ -80,6 +88,7 @@ def dashboard():
         folders_with_size.append(folder_data)
 
     return render_template('dashboard.html', folders=folders_with_size, username=user.username)
+
 
 
 @app.route('/folder/<int:folder_id>/download')
@@ -116,22 +125,32 @@ def create_folder():
 @app.route('/folder/<int:folder_id>', methods=['GET', 'POST'])
 def folder_view(folder_id):
     folder = Folder.query.get(folder_id)
-    if request.method == 'POST':
-        file = request.files['file']
-        if file and allowed_file(file.filename):
-            filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-            size = os.path.getsize(file_path)
-            public_url = url_for('serve_file', filename=filename, _external=True)
 
-            new_file = File(filename=filename, size=size, folder_id=folder.id, public_url=public_url)
-            db.session.add(new_file)
+    if request.method == 'POST':
+        if 'file' in request.files:
+            file = request.files['file']
+            if file and allowed_file(file.filename):
+                filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(file_path)
+                size = os.path.getsize(file_path)
+                public_url = url_for('serve_file', filename=filename, _external=True)
+
+                new_file = File(filename=filename, size=size, folder_id=folder.id, public_url=public_url)
+                db.session.add(new_file)
+                db.session.commit()
+            else:
+                flash("Invalid file type.")
+
+        elif 'subfolder_name' in request.form:
+            subfolder = Folder(name=request.form['subfolder_name'], user_id=session['user_id'], parent_id=folder.id)
+            db.session.add(subfolder)
             db.session.commit()
-        else:
-            flash("Invalid file type.")
+
     files = File.query.filter_by(folder_id=folder.id).all()
-    return render_template('folder.html', folder=folder, files=files)
+    subfolders = Folder.query.filter_by(parent_id=folder.id).all()
+    return render_template('folder.html', folder=folder, files=files, subfolders=subfolders)
+
 
 @app.route('/files/<filename>')
 def serve_file(filename):
@@ -148,6 +167,78 @@ def delete_file(file_id, folder_id):
     db.session.delete(file)
     db.session.commit()
     return redirect(url_for('folder_view', folder_id=folder_id))
+
+def delete_folder_and_contents(folder):
+    # Delete all files in this folder
+    files = File.query.filter_by(folder_id=folder.id).all()
+    for file in files:
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        db.session.delete(file)
+
+    # Recursively delete subfolders
+    subfolders = Folder.query.filter_by(parent_id=folder.id).all()
+    for subfolder in subfolders:
+        delete_folder_and_contents(subfolder)
+
+    # Finally delete the folder itself
+    db.session.delete(folder)
+
+@app.route('/folder/<int:folder_id>/delete', methods=['POST'])
+def delete_folder(folder_id):
+    if 'user_id' not in session:
+        return {'success': False}, 401
+
+    folder = Folder.query.filter_by(id=folder_id, user_id=session['user_id']).first()
+    if not folder:
+        return {'success': False}, 404
+
+    # Recursively delete all subfolders and files
+    def delete_recursive(folder):
+        subfolders = Folder.query.filter_by(parent_id=folder.id).all()
+        for sub in subfolders:
+            delete_recursive(sub)
+
+        files = File.query.filter_by(folder_id=folder.id).all()
+        for f in files:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], f.filename)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            db.session.delete(f)
+
+        db.session.delete(folder)
+
+    delete_recursive(folder)
+    db.session.commit()
+    return {'success': True}
+
+
+
+
+@app.route('/folder/<int:folder_id>/rename', methods=['POST'])
+def rename_folder(folder_id):
+    if 'user_id' not in session:
+        return {'success': False}, 401
+
+    folder = Folder.query.filter_by(id=folder_id, user_id=session['user_id']).first()
+    if not folder:
+        return {'success': False}, 404
+
+    if request.is_json:
+        data = request.get_json()
+        new_name = data.get('new_name', '').strip()
+    else:
+        new_name = request.form.get('new_name', '').strip()
+
+    if new_name:
+        folder.name = new_name
+        db.session.commit()
+        return {'success': True}
+
+    return {'success': False}, 400
+
+
 
 @app.route('/logout')
 def logout():

@@ -12,7 +12,10 @@ class Folder(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    parent_id = db.Column(db.Integer, db.ForeignKey('folder.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parent = db.relationship('Folder', remote_side=[id], backref='subfolders')
+
 
 class File(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -21,3 +24,4 @@ class File(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     folder_id = db.Column(db.Integer, db.ForeignKey('folder.id'))
     public_url = db.Column(db.String(300))
+

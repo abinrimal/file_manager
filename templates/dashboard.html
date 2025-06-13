@@ -5,53 +5,218 @@
   <title>Your Folders</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    .folder-card {
+      width: 200px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background-color: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+      text-align: center;
+      margin: 10px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .folder-card:hover {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .folder-grid {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: start;
+    }
+    .folder-name {
+      font-weight: bold;
+      margin-top: 10px;
+      word-break: break-word;
+    }
+    .folder-meta {
+      font-size: 0.85rem;
+      color: #777;
+    }
+    .progress {
+      height: 6px;
+      margin-top: 5px;
+    }
+    .pagination {
+      justify-content: center;
+    }
+  </style>
 </head>
 <body class="bg-light">
 
 <div class="container py-5">
   <div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="text-primary">📁 Your Folders</h2>
-  <div class="d-flex align-items-center">
-    <span class="me-3 text-muted">👤 {{ username }}</span>
-    <a href="/logout" class="btn btn-outline-danger">Logout</a>
+    <h2 class="text-primary">📁 Your Folders</h2>
+    <div class="d-flex align-items-center">
+      <span class="me-3 text-muted">👤 {{ username }}</span>
+      <a href="/logout" class="btn btn-outline-danger">Logout</a>
+    </div>
   </div>
-</div>
 
-  <form method="post" action="/folder/create" class="row g-3 mb-4">
-    <div class="col-md-9">
-      <input name="folder_name" class="form-control" placeholder="Enter new folder name" required>
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <form method="post" action="/folder/create">
+        <div class="input-group">
+          <input name="folder_name" class="form-control" placeholder="Enter new folder name" required>
+          <button type="submit" class="btn btn-success">Create</button>
+        </div>
+      </form>
     </div>
-    <div class="col-md-3">
-      <button type="submit" class="btn btn-success w-100">Create Folder</button>
+    <div class="col-md-4">
+      <input id="searchInput" oninput="filterFolders()" class="form-control" placeholder="Search folders...">
     </div>
-  </form>
+    <div class="col-md-4">
+      <select class="form-select" onchange="sortFolders(this.value)">
+        <option value="name">Sort by Name</option>
+        <option value="size">Sort by Size</option>
+        <option value="count">Sort by File Count</option>
+      </select>
+    </div>
+  </div>
 
   {% if folders %}
-  <div class="list-group shadow-sm">
-    {% for folder in folders %}
-      <div class="list-group-item">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <div>
-            <i class="bi bi-folder-fill text-warning me-2"></i>
-            <strong>{{ folder.name }}</strong>
-            <small class="text-muted ms-2">({{ folder.total_size }} MB, {{ folder.file_count }} files)</small>
+    <div class="folder-grid">
+      {% for folder in folders %}
+        <div class="folder-card" data-id="{{ folder.id }}" data-name="{{ folder.name }}" data-size="{{ folder.total_size }}" data-count="{{ folder.file_count }}"
+             onclick="window.location.href='{{ url_for('folder_view', folder_id=folder.id) }}'">
+          <i class="bi bi-folder-fill text-warning" style="font-size: 2.5rem;"></i>
+          <div class="folder-name">{{ folder.name }}</div>
+          <div class="folder-meta">{{ folder.total_size }} MB • {{ folder.file_count }} files</div>
+          <div class="folder-meta">📅 {{ folder.created_at.strftime('%Y-%m-%d') if folder.created_at else '' }}</div>
+          <div class="progress">
+            <div class="progress-bar bg-info" style="width: {{ folder.usage_percent }}%;" role="progressbar" aria-valuenow="{{ folder.usage_percent }}" aria-valuemin="0" aria-valuemax="100"></div>
           </div>
-          <div>
-            <a href="{{ url_for('folder_view', folder_id=folder.id) }}" class="btn btn-sm btn-outline-primary me-2">View</a>
-            <a href="{{ url_for('download_folder_zip', folder_id=folder.id) }}" class="btn btn-sm btn-outline-success">Download ZIP</a>
-          </div>
+          <small class="text-muted">Used {{ folder.total_size }} MB of 100 MB</small>
         </div>
-        <div class="progress" style="height: 8px;">
-          <div class="progress-bar bg-info" role="progressbar" style="width: {{ folder.usage_percent }}%;" aria-valuenow="{{ folder.usage_percent }}" aria-valuemin="0" aria-valuemax="100"></div>
-        </div>
-        <small class="text-muted">Used {{ folder.total_size }} MB of 100 MB quota</small>
-      </div>
-    {% endfor %}
-  </div>
+      {% endfor %}
+    </div>
+    <nav>
+      <ul class="pagination mt-4" id="pagination"></ul>
+    </nav>
   {% else %}
     <div class="alert alert-info">No folders found. Create one above.</div>
   {% endif %}
+
+  <!-- Context Menu -->
+  <div id="contextMenu" class="position-absolute bg-white border rounded shadow-sm p-2" style="display:none; z-index:999; width:200px;">
+    <input type="text" id="renameInput" class="form-control form-control-sm mb-2" placeholder="Rename folder">
+    <button class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="submitRename()">Rename</button>
+    <button class="btn btn-sm btn-outline-success w-100 mb-2" onclick="submitZip()">Download ZIP</button>
+    <button class="btn btn-sm btn-outline-danger w-100" onclick="submitDelete()">Delete Folder</button>
+  </div>
 </div>
+
+<script>
+  let currentPage = 1;
+  let pageSize = 6;
+  let selectedFolderId = null;
+
+  function filterFolders() {
+    const query = document.getElementById('searchInput').value.toLowerCase();
+    const cards = document.querySelectorAll('.folder-card');
+    cards.forEach(card => {
+      const name = card.querySelector('.folder-name').textContent.toLowerCase();
+      card.style.display = name.includes(query) ? '' : 'none';
+    });
+    paginate();
+  }
+
+  function sortFolders(criteria) {
+    const container = document.querySelector('.folder-grid');
+    const cards = Array.from(container.children);
+    cards.sort((a, b) => {
+      const aValue = a.getAttribute(`data-${criteria}`).toLowerCase();
+      const bValue = b.getAttribute(`data-${criteria}`).toLowerCase();
+      return aValue.localeCompare(bValue);
+    });
+    container.innerHTML = '';
+    cards.forEach(card => container.appendChild(card));
+    paginate();
+  }
+
+  function paginate() {
+    const cards = document.querySelectorAll('.folder-card');
+    const totalPages = Math.ceil(cards.length / pageSize);
+    cards.forEach((card, index) => {
+      card.style.display = (index >= (currentPage - 1) * pageSize && index < currentPage * pageSize) ? '' : 'none';
+    });
+    const pagination = document.getElementById('pagination');
+    pagination.innerHTML = '';
+    for (let i = 1; i <= totalPages; i++) {
+      pagination.innerHTML += `<li class="page-item ${i === currentPage ? 'active' : ''}"><a class="page-link" href="#" onclick="goToPage(${i})">${i}</a></li>`;
+    }
+  }
+
+  function goToPage(page) {
+    currentPage = page;
+    paginate();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    paginate();
+  });
+
+  document.addEventListener('contextmenu', function (e) {
+    const card = e.target.closest('.folder-card');
+    if (card) {
+      e.preventDefault();
+      selectedFolderId = card.getAttribute('data-id');
+      const menu = document.getElementById('contextMenu');
+      const input = document.getElementById('renameInput');
+      input.value = card.querySelector('.folder-name').textContent;
+      menu.style.top = e.pageY + 'px';
+      menu.style.left = e.pageX + 'px';
+      menu.style.display = 'block';
+      input.focus();
+    } else {
+      hideContextMenu();
+    }
+  });
+
+  document.addEventListener('click', function (e) {
+    const menu = document.getElementById('contextMenu');
+    if (!menu.contains(e.target)) {
+      hideContextMenu();
+    }
+  });
+
+  function hideContextMenu() {
+    document.getElementById('contextMenu').style.display = 'none';
+  }
+
+  function submitRename() {
+    const newName = document.getElementById('renameInput').value;
+    fetch(`/folder/${selectedFolderId}/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_name: newName })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) location.reload();
+      else alert('Rename failed.');
+    });
+  }
+
+  function submitDelete() {
+    if (!confirm("Are you sure you want to delete this folder and all its contents?")) return;
+    fetch(`/folder/${selectedFolderId}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) location.reload();
+      else alert('Delete failed.');
+    });
+  }
+
+  function submitZip() {
+    window.location.href = `/folder/${selectedFolderId}/download`;
+  }
+</script>
 
 </body>
 </html>
