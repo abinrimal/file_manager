@@ -92,7 +92,7 @@
           <div class="progress">
             <div class="progress-bar bg-info" style="width: {{ folder.usage_percent }}%;" role="progressbar" aria-valuenow="{{ folder.usage_percent }}" aria-valuemin="0" aria-valuemax="100"></div>
           </div>
-          <small class="text-muted">Used {{ folder.total_size }} MB of 100 MB</small>
+        <small class="text-muted">Used {{ folder.total_size }} MB of {{ max_storage }} MB</small>
         </div>
       {% endfor %}
     </div>

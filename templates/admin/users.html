@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>User Management - Admin</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-5">
+  <h4 class="mb-4 text-primary">👥 Manage Users</h4>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="alert alert-info">{{ messages[0] }}</div>
+    {% endif %}
+  {% endwith %}
+
+  <h6 class="mb-2">➕ Add New User</h6>
+  <form method="post" action="/admin/users/add" class="row g-2 mb-4">
+    <div class="col-md-4"><input name="username" class="form-control" placeholder="Username" required></div>
+    <div class="col-md-4"><input name="password" type="password" class="form-control" placeholder="Password" required></div>
+    <div class="col-md-4"><button type="submit" class="btn btn-success w-100">Add User</button></div>
+  </form>
+
+  <table class="table table-bordered bg-white shadow-sm">
+   <thead class="table-light">
+      <tr>
+        <th>ID</th>
+        <th>Username</th>
+        <th>Max Storage (MB)</th>
+        <th>Update</th>
+        <th>Delete</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <form method="post" action="/admin/users/{{ user.id }}/edit">
+          <td><a href="{{ url_for('admin_user_folders', user_id=user.id ) }}" class="btn btn-outline-dark w-100">📁 {{ user.id }} </a></td>
+          <td>
+            <input name="username" class="form-control" value="{{ user.username }}" {% if user.id == 1 %}readonly{% endif %}>
+          </td>
+          <td>
+            <input name="max_storage_mb" type="number" class="form-control" min="1" value="{{ user.max_storage_mb or 100 }}">
+          </td>
+          <td>
+            {% if user.role != 'admin' %}
+              <input name="password" class="form-control mb-2" type="password" placeholder="New Password">
+              <button class="btn btn-sm btn-outline-primary w-100">Update</button>
+            {% else %}
+              <small class="text-muted">Super Admin</small>
+            {% endif %}
+          </td>
+        </form>
+        <td>
+          {% if user.role != 'admin' %}
+          <form method="post" action="/admin/users/{{ user.id }}/delete" onsubmit="return confirm('Delete this user?')">
+            <button class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+          {% else %}
+          <span class="text-muted">N/A</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <a href="/admin/dashboard" class="btn btn-outline-secondary mt-4">← Back to Admin</a>
+</div>
+</body>
+</html>
