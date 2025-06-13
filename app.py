@@ -1,4 +1,6 @@
-from flask import Flask, render_template,jsonify, request, redirect, url_for, session, send_from_directory, flash, send_file
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session, send_from_directory, flash, send_file
+from flask_login import LoginManager, login_required,  login_user
+
 from werkzeug.utils import secure_filename
 import os
 import uuid
@@ -15,22 +17,29 @@ app.config.from_object(Config)
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB max file size
 app.permanent_session_lifetime = timedelta(days=7)
 
+# Initialize extensions
 db.init_app(app)
-migrate = Migrate(app, db) 
+migrate = Migrate(app, db)
 
+# Set up login manager
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'pdf', 'doc', 'docx'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
 @app.route('/')
 def home():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
     return redirect(url_for('login'))
-
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -47,18 +56,10 @@ def login():
     if request.method == 'POST':
         user = User.query.filter_by(username=request.form['username']).first()
         if user and check_password_hash(user.password, request.form['password']):
-            session['user_id'] = user.id
-
-            # Handle remember me
-            if 'remember' in request.form:
-                session.permanent = True 
-            else:
-                session.permanent = False
-
+            login_user(user, remember='remember' in request.form)
             return redirect(url_for('dashboard'))
         flash("Invalid credentials")
     return render_template('login.html')
-
 
 @app.route('/dashboard')
 def dashboard():
@@ -71,7 +72,6 @@ def dashboard():
         flash("Session expired. Please log in again.")
         return redirect(url_for('login'))
 
-    # Only get top-level folders (no parent)
     folders = Folder.query.filter_by(user_id=user.id, parent_id=None).all()
 
     folders_with_size = []
@@ -88,8 +88,6 @@ def dashboard():
         folders_with_size.append(folder_data)
 
     return render_template('dashboard.html', folders=folders_with_size, username=user.username)
-
-
 
 @app.route('/folder/<int:folder_id>/download')
 def download_folder_zip(folder_id):
@@ -113,7 +111,6 @@ def download_folder_zip(folder_id):
         mimetype='application/zip'
     )
 
-
 @app.route('/folder/create', methods=['POST'])
 def create_folder():
     name = request.form['folder_name']
@@ -131,7 +128,7 @@ def folder_view(folder_id):
             file = request.files['file']
             if file and allowed_file(file.filename):
                 ext = os.path.splitext(file.filename)[1]
-                filename = f"{uuid.uuid4()}{ext}" 
+                filename = f"{uuid.uuid4()}{ext}"
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(file_path)
                 size = os.path.getsize(file_path)
@@ -152,7 +149,6 @@ def folder_view(folder_id):
     subfolders = Folder.query.filter_by(parent_id=folder.id).all()
     return render_template('folder.html', folder=folder, files=files, subfolders=subfolders)
 
-
 @app.route('/files/<filename>')
 def serve_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
@@ -170,7 +166,6 @@ def delete_file(file_id, folder_id):
     return redirect(url_for('folder_view', folder_id=folder_id))
 
 def delete_folder_and_contents(folder):
-    # Delete all files in this folder
     files = File.query.filter_by(folder_id=folder.id).all()
     for file in files:
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
@@ -178,12 +173,10 @@ def delete_folder_and_contents(folder):
             os.remove(file_path)
         db.session.delete(file)
 
-    # Recursively delete subfolders
     subfolders = Folder.query.filter_by(parent_id=folder.id).all()
     for subfolder in subfolders:
         delete_folder_and_contents(subfolder)
 
-    # Finally delete the folder itself
     db.session.delete(folder)
 
 @app.route('/folder/<int:folder_id>/delete', methods=['POST'])
@@ -195,7 +188,6 @@ def delete_folder(folder_id):
     if not folder:
         return {'success': False}, 404
 
-    # Recursively delete all subfolders and files
     def delete_recursive(folder):
         subfolders = Folder.query.filter_by(parent_id=folder.id).all()
         for sub in subfolders:
@@ -213,9 +205,6 @@ def delete_folder(folder_id):
     delete_recursive(folder)
     db.session.commit()
     return {'success': True}
-
-
-
 
 @app.route('/folder/<int:folder_id>/rename', methods=['POST'])
 def rename_folder(folder_id):
@@ -246,16 +235,32 @@ def rename_file(file_id):
     file = File.query.get(file_id)
 
     if file and new_base:
-        # Split the original extension
         ext = os.path.splitext(file.filename)[1]
-        # Rename only the base name, preserve extension
         file.filename = f"{new_base}{ext}"
         db.session.commit()
         return jsonify(success=True)
     return jsonify(success=False), 400
 
+@app.route('/change-password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    if request.method == 'POST':
+        current = request.form['current_password']
+        new = request.form['new_password']
+        confirm = request.form['confirm_password']
 
+        user = User.query.get(session['user_id'])
 
+        if not check_password_hash(user.password, current):
+            flash('Current password is incorrect.')
+        elif new != confirm:
+            flash('New passwords do not match.')
+        else:
+            user.password = generate_password_hash(new)
+            db.session.commit()
+            flash('Password updated successfully.')
+
+    return render_template('change_password.html')
 
 @app.route('/logout')
 def logout():
